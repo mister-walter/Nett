@@ -80,6 +80,47 @@
             internal set { this.AsDict[key] = value; }
         }
 
+        /// <summary>
+        /// Allows to combine two TOML tables to a new result table.
+        /// </summary>
+        /// <remarks>
+        /// The given lambda is used to configure what combination operation should be performed.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var x = Toml.Create(); // Assume rows are added to X
+        /// var y = Toml.Create(); // Assume rows are added to Y
+        ///
+        /// // Create table that has all rows of X + rows of Y that had no equivalent in row in X
+        /// var r1 = Toml.CombineTables(op => op.Overwrite(X).With(Y).ForRowsOnlyInSource());
+        ///
+        /// // Create table that has all rows of X overwritten with the
+        /// // equivalent rows from Y and added all rows that had no equivalent row in X yet
+        /// var r2 = Toml.CombineTables(op => op.Overwrite(X).With(Y).ForAllSourceRows());
+        ///
+        /// // Create table that has all rows of X overwritten with the
+        /// // equivalent row of Y, if such a row existed in Y
+        /// var r3 = Toml.CombineTables(op => op.Overwrite(X).With(Y).ForAllTargetRows());
+        ///
+        /// // These operations create the following tables
+        /// // Key | X   | Y   | r1 | r2 | r3
+        /// // ------------------------------
+        /// // a   | 1   |     | 1  | 1  | 1
+        /// // b   |     | 2   | 2  | 2  |
+        /// // c   | 3   | 4   | 3  | 4  | 4
+        /// </code>
+        /// </example>
+        /// <param name="operation">Lambda used to configure the operation that should be performed.</param>
+        /// <returns>
+        /// A new TomlTable instance containing the table resulting from the operation. The new table will
+        /// be a completely new deep clone of the original tables/rows.
+        /// </returns>
+        public static TomlTable Combine(Func<ITargetSelector, ITableCombiner> operation)
+        {
+            var builtOperation = (ITableOperation)operation(new TomlTable.TableOperationBuilder());
+            return builtOperation.Execute();
+        }
+
         public void Clear()
         {
             this.CheckNotFrozen();
@@ -244,6 +285,20 @@
             return toAdd;
         }
 
+        internal override TomlObject CloneFor(ITomlRoot root) => this.CloneTableFor(root);
+
+        internal TomlTable CloneTableFor(ITomlRoot root)
+        {
+            var tbl = new TomlTable(root, this.TableType);
+
+            foreach (var r in this.rows)
+            {
+                tbl.AddRow(r.Key, r.Value.CloneFor(root));
+            }
+
+            return tbl;
+        }
+
         internal override void OverwriteCommentsWithCommentsFrom(TomlObject src, bool overwriteWithEmpty)
         {
             this.CheckNotFrozen();
@@ -291,7 +346,7 @@
             var comments = pi.GetCustomAttributes(typeof(TomlCommentAttribute), false).Cast<TomlCommentAttribute>();
             foreach (var c in comments)
             {
-                obj.Comments.Add(new TomlComment(c.Comment, c.Location));
+                obj.AddComment(new TomlComment(c.Comment, c.Location));
             }
         }
 
